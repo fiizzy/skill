@@ -69,7 +69,7 @@ mod autostart;
 mod tts;
 pub mod device;
 use tts::{tts_init, tts_speak, tts_unload, tts_list_voices, tts_list_neutts_voices, tts_get_voice, tts_set_voice};
-pub(crate) use tts::{neutts_apply_config, init_tts_dirs};
+pub(crate) use tts::{neutts_apply_config, init_tts_dirs, init_neutts_samples_dir};
 
 mod settings;
 pub(crate) use settings::{
@@ -500,6 +500,7 @@ impl Default for AppState {
 
         // Register skill_dir with the TTS module before any worker thread starts.
         init_tts_dirs(&skill_dir);
+        // init_neutts_samples_dir is called later in setup() once app_handle is available.
 
         let model_config    = load_model_config(&skill_dir);
         let model_status    = std::sync::Arc::new(
@@ -5159,6 +5160,16 @@ pub fn run() {
         .manage(std::sync::Arc::new(EmbedderState(std::sync::Mutex::new(None))))
         .manage(std::sync::Arc::new(label_index::LabelIndexState::new()))
         .setup(|app| {
+            // Resolve bundled NeuTTS preset sample files from the Tauri resource dir.
+            // Must happen before any tts_init call, but after the app is set up.
+            {
+                use tauri::Manager;
+                let samples_dir = app.path().resource_dir()
+                    .unwrap_or_else(|_| std::path::PathBuf::from("resources"))
+                    .join("neutts-samples");
+                init_neutts_samples_dir(samples_dir);
+            }
+
             // hides dock icon
             // app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             
