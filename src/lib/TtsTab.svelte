@@ -7,6 +7,7 @@ the Free Software Foundation, version 3 only. -->
 <!-- Settings tab — Voice (TTS) -->
 <script lang="ts">
   import { onMount, onDestroy }       from "svelte";
+  import { fade }                     from "svelte/transition";
   import { invoke }                   from "@tauri-apps/api/core";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
   import { Card, CardContent }        from "$lib/components/ui/card";
@@ -538,15 +539,19 @@ the Free Software Foundation, version 3 only. -->
           <!-- ── Save button ────────────────────────────────────────────────── -->
           <div class="px-4 py-3 flex justify-end">
             <button
-              onclick={saveNeutts}
-              disabled={!neuttsDirty && !neuttsSaved}
-              class="rounded-lg px-3.5 py-1.5 text-[0.66rem] font-semibold transition-all
+              onclick={neuttsDirty ? saveNeutts : undefined}
+              class="relative overflow-hidden rounded-lg px-3.5 py-1.5 text-[0.66rem] font-semibold
+                     transition-all duration-300
                      {neuttsSaved
                        ? 'bg-emerald-500 text-white border border-emerald-500'
                        : neuttsDirty
                          ? 'bg-indigo-500 hover:bg-indigo-600 text-white border border-indigo-500'
-                         : 'bg-muted dark:bg-[#1a1a28] text-muted-foreground border border-border dark:border-white/[0.08] opacity-50 cursor-not-allowed'}">
-              {neuttsSaved ? t("ttsTab.neuttsSaved") : t("ttsTab.neuttsSaveButton")}
+                         : 'bg-muted dark:bg-[#1a1a28] text-muted-foreground border border-border dark:border-white/[0.08] opacity-40 cursor-not-allowed'}">
+              {#key neuttsSaved}
+                <span transition:fade={{ duration: 160 }}>
+                  {neuttsSaved ? t("ttsTab.neuttsSaved") : t("ttsTab.neuttsSaveButton")}
+                </span>
+              {/key}
             </button>
           </div>
 
