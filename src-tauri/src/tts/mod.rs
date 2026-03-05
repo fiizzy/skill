@@ -73,17 +73,34 @@ pub(super) const TAIL_SILENCE_SECS: f32 = 0.25;
 
 // ─── Progress event ───────────────────────────────────────────────────────────
 
+/// Payload for the `"tts-progress"` Tauri event.
+///
+/// Frontend shape (TypeScript):
+/// ```ts
+/// type TtsProgress = { phase: "step" | "ready" | "unloaded"; step: number; total: number; label: string };
+/// ```
 #[derive(Clone, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct TtsProgressEvent {
-    pub step:    u32,
-    pub total:   u32,
-    pub message: String,
+    pub phase: String,
+    pub step:  u32,
+    pub total: u32,
+    pub label: String,
 }
 
+pub(crate) const TTS_PROGRESS_EVENT: &str = "tts-progress";
+
 impl TtsProgressEvent {
-    pub(super) fn step(step: u32, total: u32, message: String) -> Self {
-        Self { step, total, message }
+    /// A mid-load progress step.
+    pub(super) fn step(step: u32, total: u32, label: String) -> Self {
+        Self { phase: "step".into(), step, total, label }
+    }
+    /// Loading finished successfully.
+    pub(super) fn ready(total: u32) -> Self {
+        Self { phase: "ready".into(), step: total, total, label: String::new() }
+    }
+    /// Backend was unloaded.
+    pub(super) fn unloaded() -> Self {
+        Self { phase: "unloaded".into(), step: 0, total: 0, label: String::new() }
     }
 }
 
@@ -198,14 +215,14 @@ pub struct NeuttsVoiceInfo {
 pub async fn tts_init(app_handle: AppHandle) -> Result<(), String> {
     let app = app_handle.clone();
     let emit = move |ev: TtsProgressEvent| {
-        app.emit("tts_progress", ev).ok();
+        app.emit(TTS_PROGRESS_EVENT, ev).ok();
     };
 
     if use_neutts() {
         #[cfg(feature = "tts-neutts")]
         {
             if neutts::READY.load(Ordering::Relaxed) {
-                emit(TtsProgressEvent { step: 1, total: 1, message: "NeuTTS already loaded".into() });
+                emit(TtsProgressEvent::ready(3));
                 return Ok(());
             }
             if neutts::LOADING.load(Ordering::Relaxed) {
@@ -223,14 +240,16 @@ pub async fn tts_init(app_handle: AppHandle) -> Result<(), String> {
                 cb:   Box::new(move |p| emit_c(neutts::progress_to_event(p))),
                 done: tx,
             }).map_err(|e| format!("neutts init channel send: {e}"))?;
-            return rx.await.map_err(|e| format!("neutts init channel recv: {e}"))
+            let result = rx.await.map_err(|e| format!("neutts init channel recv: {e}"))
                 .and_then(|r| r);
+            if result.is_ok() { emit(TtsProgressEvent::ready(3)); }
+            return result;
         }
     } else {
         #[cfg(feature = "tts-kitten")]
         {
             if kitten::LOADED.load(Ordering::Relaxed) {
-                emit(TtsProgressEvent { step: 1, total: 1, message: "KittenTTS already loaded".into() });
+                emit(TtsProgressEvent::ready(4));
                 return Ok(());
             }
             let (tx, rx) = tokio::sync::oneshot::channel();
@@ -247,8 +266,10 @@ pub async fn tts_init(app_handle: AppHandle) -> Result<(), String> {
                 }),
                 done: tx,
             }).map_err(|e| format!("kitten init channel send: {e}"))?;
-            return rx.await.map_err(|e| format!("kitten init channel recv: {e}"))
+            let result = rx.await.map_err(|e| format!("kitten init channel recv: {e}"))
                 .and_then(|r| r);
+            if result.is_ok() { emit(TtsProgressEvent::ready(4)); }
+            return result;
         }
     }
 
@@ -258,7 +279,7 @@ pub async fn tts_init(app_handle: AppHandle) -> Result<(), String> {
 
 /// Unload the active TTS backend, freeing memory.
 #[tauri::command]
-pub async fn tts_unload() -> Result<(), String> {
+pub async fn tts_unload(app_handle: AppHandle) -> Result<(), String> {
     if use_neutts() {
         #[cfg(feature = "tts-neutts")]
         {
@@ -266,6 +287,7 @@ pub async fn tts_unload() -> Result<(), String> {
             neutts::get_tx().send(neutts::Cmd::Unload { done: tx })
                 .map_err(|e| format!("neutts unload channel send: {e}"))?;
             rx.await.map_err(|e| format!("neutts unload channel recv: {e}"))?;
+            app_handle.emit(TTS_PROGRESS_EVENT, TtsProgressEvent::unloaded()).ok();
             return Ok(());
         }
     } else {
@@ -275,6 +297,7 @@ pub async fn tts_unload() -> Result<(), String> {
             kitten::get_tx().send(kitten::Cmd::Unload { done: tx })
                 .map_err(|e| format!("kitten unload channel send: {e}"))?;
             rx.await.map_err(|e| format!("kitten unload channel recv: {e}"))?;
+            app_handle.emit(TTS_PROGRESS_EVENT, TtsProgressEvent::unloaded()).ok();
             return Ok(());
         }
     }
