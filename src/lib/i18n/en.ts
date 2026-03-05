@@ -2032,6 +2032,7 @@ const en: Record<string, string> = {
   // ── Test / API / logging (unchanged keys) ─────────────────────────────────
   "ttsTab.testSection":           "Test Voice",
   "ttsTab.testDesc":              "Type any text and press Speak to hear the active engine.",
+  "ttsTab.startupSection":        "Startup",
   "ttsTab.loggingSection":        "Debug Logging",
   "ttsTab.loggingLabel":          "TTS synthesis logging",
   "ttsTab.loggingDesc":           "Write synthesis events (text, sample count, latency) to the log file.",

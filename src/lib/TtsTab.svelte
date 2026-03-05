@@ -345,25 +345,6 @@ the Free Software Foundation, version 3 only. -->
           </div>
         {/if}
 
-        <!-- Auto-preload on startup toggle -->
-        <button
-          onclick={() => {
-            ttsPreload = !ttsPreload;
-            invoke("set_tts_preload", { preload: ttsPreload }).catch(() => {});
-          }}
-          class="w-full flex items-center gap-3 text-left rounded-lg px-0 py-0.5 transition-colors
-                 hover:text-foreground text-muted-foreground group">
-          <div class="relative shrink-0 w-7 h-3.5 rounded-full transition-colors duration-200
-                      {ttsPreload ? 'bg-indigo-500' : 'bg-muted-foreground/30'}">
-            <div class="absolute top-0.5 h-2.5 w-2.5 rounded-full bg-white shadow transition-transform duration-200
-                        {ttsPreload ? 'translate-x-3.5' : 'translate-x-0.5'}"></div>
-          </div>
-          <div class="flex flex-col">
-            <span class="text-[0.69rem] font-medium leading-tight">{t("ttsTab.preloadOnStartup")}</span>
-            <span class="text-[0.58rem] text-muted-foreground/60 leading-tight">{t("ttsTab.preloadOnStartupDesc")}</span>
-          </div>
-        </button>
-
         <!-- espeak-ng note -->
         <p class="text-[0.58rem] text-muted-foreground/50 leading-relaxed">
           {t("ttsTab.requirements")} · {t("ttsTab.requirementsDesc")}
@@ -621,7 +602,40 @@ the Free Software Foundation, version 3 only. -->
     </div>
   </section>
 
-  <!-- ── 6. Debug logging ───────────────────────────────────────────────────── -->
+  <!-- ── 6. Startup behaviour ─────────────────────────────────────────────── -->
+  <section class="flex flex-col gap-2">
+    <span class="text-[0.56rem] font-semibold tracking-widest uppercase text-muted-foreground">
+      {t("ttsTab.startupSection")}
+    </span>
+
+    <Card class="border-border dark:border-white/[0.06] bg-white dark:bg-[#14141e] gap-0 py-0 overflow-hidden">
+      <CardContent class="py-0 px-0">
+        <button
+          onclick={() => {
+            ttsPreload = !ttsPreload;
+            invoke("set_tts_preload", { preload: ttsPreload }).catch(() => {});
+          }}
+          class="w-full flex items-center gap-3 px-4 py-3.5 text-left transition-colors
+                 hover:bg-slate-50 dark:hover:bg-white/[0.02]">
+          <div class="relative shrink-0 w-8 h-4 rounded-full transition-colors
+                      {ttsPreload ? 'bg-indigo-500' : 'bg-muted dark:bg-white/[0.08]'}">
+            <div class="absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform
+                        {ttsPreload ? 'translate-x-4' : 'translate-x-0.5'}"></div>
+          </div>
+          <div class="flex flex-col gap-0.5">
+            <span class="text-[0.72rem] font-semibold text-foreground leading-tight">
+              {t("ttsTab.preloadOnStartup")}
+            </span>
+            <span class="text-[0.58rem] text-muted-foreground leading-tight">
+              {t("ttsTab.preloadOnStartupDesc")}
+            </span>
+          </div>
+        </button>
+      </CardContent>
+    </Card>
+  </section>
+
+  <!-- ── 7. Debug logging ───────────────────────────────────────────────────── -->
   <section class="flex flex-col gap-2">
     <span class="text-[0.56rem] font-semibold tracking-widest uppercase text-muted-foreground">
       {t("ttsTab.loggingSection")}
