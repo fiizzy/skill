@@ -2926,45 +2926,44 @@ async function cmdDnd(args: Args): Promise<void> {
     v === false ? `${RED}no${RESET}`   :
     `${DIM}n/a (non-macOS)${RESET}`;
 
-  // Score bar: show both raw and smoothed side-by-side
-  const scoreBar = (raw: number, smoothed: number, threshold: number) => {
-    const pct  = Math.min(smoothed / 100, 1.0);
-    const fill = Math.round(pct * 20);
-    const empty = 20 - fill;
-    const bar  = `${smoothed >= threshold ? GREEN : YELLOW}${"█".repeat(fill)}${RESET}${DIM}${"░".repeat(empty)}${RESET}`;
-    const mark = Math.round((threshold / 100) * 20);
-    return `${bar}  smoothed ${smoothed.toFixed(1)}  ${DIM}(raw ${raw.toFixed(1)}, threshold ${threshold} @ col ${mark})${RESET}`;
+  const avg = typeof r.avg_score === "number" ? r.avg_score : 0;
+
+  // Score bar — filled portion represents avg_score / 100
+  const scoreBar = (avg: number, threshold: number) => {
+    const pct  = Math.min(avg / 100, 1.0);
+    const fill = Math.round(pct * 24);
+    const empty = 24 - fill;
+    const color = avg >= threshold ? GREEN : YELLOW;
+    return `${color}${"█".repeat(fill)}${RESET}${DIM}${"░".repeat(empty)}${RESET}  ${avg.toFixed(1)} / ${threshold}`;
   };
 
-  const timerBar = (elapsed: number, total: number) => {
-    const pct  = total > 0 ? Math.min(elapsed / total, 1.0) : 0;
-    const fill = Math.round(pct * 20);
-    const empty = 20 - fill;
-    return `${GREEN}${"█".repeat(fill)}${RESET}${DIM}${"░".repeat(empty)}${RESET} ${elapsed}s / ${total}s`;
+  // Window fill bar — how many samples collected vs target
+  const windowBar = (count: number, total: number) => {
+    const pct  = total > 0 ? Math.min(count / total, 1.0) : 0;
+    const fill = Math.round(pct * 24);
+    const empty = 24 - fill;
+    return `${CYAN}${"█".repeat(fill)}${RESET}${DIM}${"░".repeat(empty)}${RESET}  ${count} / ${total} samples`;
   };
-
-  const raw      = typeof r.focus_score    === "number" ? r.focus_score    : 0;
-  const smoothed = typeof r.smoothed_score === "number" ? r.smoothed_score : raw;
 
   print("");
   print(`  ${CYAN}DND automation${RESET}`);
   print(`    enabled        ${yn(r.enabled)}${r.enabled ? "" : `  ${DIM}(turn on in Settings → Do Not Disturb)${RESET}`}`);
-  print(`    threshold      ${CYAN}${r.threshold}${RESET}  ${DIM}focus score (0–100) required to start timer${RESET}`);
-  print(`    duration       ${CYAN}${r.duration_secs}s${RESET}  ${DIM}must stay above threshold this long before DND activates${RESET}`);
+  print(`    threshold      ${CYAN}${r.threshold}${RESET}  ${DIM}avg focus score (0–100) required to activate${RESET}`);
+  print(`    window         ${CYAN}${r.duration_secs}s${RESET}  ${DIM}(≈ ${r.window_size} samples at ~4 Hz)${RESET}`);
   print(`    mode           ${DIM}${r.mode_identifier}${RESET}`);
   print("");
-  print(`  ${CYAN}Focus score${RESET}  ${DIM}(EMA α=0.08, τ≈3s — brief dips don't reset timer)${RESET}`);
-  print(`    ${scoreBar(raw, smoothed, r.threshold)}`);
-  print("");
-  print(`  ${CYAN}Sustained-focus timer${RESET}  ${DIM}(starts when smoothed_score ≥ threshold)${RESET}`);
-  print(`    ${timerBar(r.elapsed_secs, r.duration_secs)}`);
-  if (r.elapsed_secs >= r.duration_secs && r.duration_secs > 0) {
-    print(`    ${GREEN}▶ threshold sustained — DND should be active${RESET}`);
-  } else if (r.elapsed_secs > 0) {
-    const remaining = r.duration_secs - r.elapsed_secs;
-    print(`    ${YELLOW}▷ ${remaining}s more needed  (score has been above threshold for ${r.elapsed_secs}s)${RESET}`);
+  print(`  ${CYAN}Rolling average${RESET}  ${DIM}(avg of last ${r.window_size} focus scores)${RESET}`);
+  print(`    ${scoreBar(avg, r.threshold)}`);
+  if (avg >= r.threshold) {
+    print(`    ${GREEN}▶ above threshold — DND ${r.dnd_active ? "is active" : "activates once window fills"}${RESET}`);
   } else {
-    print(`    ${DIM}▷ timer not running — smoothed score (${smoothed.toFixed(1)}) below threshold (${r.threshold})${RESET}`);
+    print(`    ${DIM}▷ below threshold  (need ${(r.threshold - avg).toFixed(1)} more)${RESET}`);
+  }
+  print("");
+  print(`  ${CYAN}Sample window${RESET}`);
+  print(`    ${windowBar(r.sample_count, r.window_size)}`);
+  if (r.sample_count < r.window_size) {
+    print(`    ${DIM}▷ filling… (${r.window_size - r.sample_count} samples until window is full)${RESET}`);
   }
   print("");
   print(`  ${CYAN}State${RESET}`);
@@ -2980,9 +2979,9 @@ async function cmdDnd(args: Args): Promise<void> {
 
   print("");
   print(`  ${DIM}Tips:${RESET}`);
-  print(`    ${DIM}• 'dnd on'  — force-enable immediately without waiting for EEG threshold${RESET}`);
+  print(`    ${DIM}• 'dnd on'  — force-enable immediately${RESET}`);
   print(`    ${DIM}• 'dnd off' — force-disable immediately${RESET}`);
-  print(`    ${DIM}• 'listen'  — streams 'dnd-eligibility' events live (focus_score, smoothed_score, elapsed_secs)${RESET}`);
+  print(`    ${DIM}• 'listen'  — streams dnd-eligibility events live (avg_score, sample_count, dnd_active)${RESET}`);
 
   printResult(r);
 }
