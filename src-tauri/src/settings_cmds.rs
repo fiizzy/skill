@@ -718,11 +718,16 @@ pub fn list_focus_modes() -> Vec<crate::dnd::FocusModeOption> {
     crate::dnd::list_focus_modes()
 }
 
-/// Manually enable or disable a Focus mode for testing purposes.
+/// Force-disable the active Focus mode.
 ///
-/// This bypasses the EEG threshold logic entirely — it calls the OS Focus
-/// toggle directly using the mode identifier stored in the current DND config,
-/// and updates `dnd_active` so the UI reflects the change.
+/// This is a one-direction safety escape hatch: it can only **deactivate**
+/// Focus mode, never activate it.  Activation is exclusively controlled by the
+/// EEG scoring pipeline in the session loop.
+///
+/// `enabled` is accepted as a parameter for API symmetry, but any call with
+/// `enabled = true` is rejected immediately (returns `false`) so that no code
+/// path other than live EEG data can turn on Focus mode.
+///
 /// Returns `true` if the OS call succeeded.
 #[tauri::command]
 pub fn test_dnd(
@@ -730,11 +735,15 @@ pub fn test_dnd(
     app:     AppHandle,
     state:   tauri::State<'_, Mutex<AppState>>,
 ) -> bool {
-    let mode_id = state.lock_or_recover().dnd_config.focus_mode_identifier.clone();
-    let ok = crate::dnd::set_dnd(enabled, &mode_id);
+    // Guard: only allow disabling, never enabling.
+    if enabled { return false; }
+
+    let ok = crate::dnd::set_dnd(false, "");
     if ok {
-        state.lock_or_recover().dnd_active = enabled;
-        let _ = app.emit("dnd-state-changed", enabled);
+        state.lock_or_recover().dnd_active = false;
+        let _ = app.emit("dnd-state-changed", false);
+        app.state::<crate::ws_server::WsBroadcaster>()
+            .send("dnd-state-changed", &false);
     }
     ok
 }
@@ -764,20 +773,33 @@ pub fn set_dnd_config(
     let was_active = {
         let mut s = state.lock_or_recover();
         let active = s.dnd_active;
-        s.dnd_config          = config.clone();
-        s.dnd_focus_samples.clear();  // reset activation window on any config change
-        s.dnd_below_ticks     = 0;    // reset exit counter on any config change
-        s.dnd_score_history.clear();  // reset lookback history on any config change
+        s.dnd_config           = config.clone();
+        s.dnd_focus_samples.clear();   // reset activation window on any config change
+        s.dnd_below_ticks      = 0;    // reset exit counter on any config change
+        s.dnd_score_history.clear();   // reset lookback history on any config change
+        s.dnd_snr_low_ticks    = 0;    // reset SNR low counter on any config change
         if !config.enabled && s.dnd_active {
             s.dnd_active = false;
         }
         active && !config.enabled
     };
 
-    // If we just disabled the feature while DND was on, clear it.
+    // If we just disabled the feature while DND was on, clear it:
+    // (1) Exit system Focus first, (2) then notify the user if configured.
     if was_active {
-        crate::dnd::set_dnd(false, "");
-        let _ = app.emit("dnd-state-changed", false);
+        let ok = crate::dnd::set_dnd(false, "");
+        let payload = false;
+        let _ = app.emit("dnd-state-changed", payload);
+        app.state::<crate::ws_server::WsBroadcaster>()
+            .send("dnd-state-changed", &payload);
+        if ok && config.exit_notification {
+            crate::send_toast(
+                &app,
+                crate::ToastLevel::Info,
+                "Focus mode exited",
+                "Do Not Disturb automation was disabled. Focus mode deactivated.",
+            );
+        }
     }
 
     crate::save_settings(&app);

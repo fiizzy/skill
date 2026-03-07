@@ -24,6 +24,7 @@ the Free Software Foundation, version 3 only. -->
     exit_duration_secs:    number;   // seconds below threshold before DND clears (default 300)
     focus_lookback_secs:   number;   // lookback window — recent focus delays exit (default 60)
     focus_mode_identifier: string;   // modeIdentifier string, e.g. "com.apple.donotdisturb.mode.default"
+    exit_notification:     boolean;  // whether to send a notification when focus mode exits
   }
 
   interface FocusModeOption {
@@ -60,7 +61,7 @@ the Free Software Foundation, version 3 only. -->
 
   const DND_DEFAULT_MODE = "com.apple.donotdisturb.mode.default";
 
-  let dndConfig              = $state<DndConfig>({ enabled: false, focus_threshold: 60, duration_secs: 60, exit_duration_secs: 300, focus_lookback_secs: 60, focus_mode_identifier: DND_DEFAULT_MODE });
+  let dndConfig              = $state<DndConfig>({ enabled: false, focus_threshold: 60, duration_secs: 60, exit_duration_secs: 300, focus_lookback_secs: 60, focus_mode_identifier: DND_DEFAULT_MODE, exit_notification: true });
   let dndActive              = $state(false);
   let dndOsActive            = $state<boolean | null>(null); // real system-level state
   let dndExitSecsRemain      = $state(0);    // >0 while exit countdown is running
@@ -72,7 +73,8 @@ the Free Software Foundation, version 3 only. -->
 
   async function testDnd() {
     dndTesting = true;
-    try { await invoke("test_dnd", { enabled: !dndActive }); } catch {}
+    // Only ever sends enabled=false — activation is data-only.
+    try { await invoke("test_dnd", { enabled: false }); } catch {}
     dndTesting = false;
   }
 
@@ -109,6 +111,11 @@ the Free Software Foundation, version 3 only. -->
 
   async function setFocusMode(identifier: string) {
     dndConfig = { ...dndConfig, focus_mode_identifier: identifier };
+    await saveDnd();
+  }
+
+  async function toggleExitNotification() {
+    dndConfig = { ...dndConfig, exit_notification: !dndConfig.exit_notification };
     await saveDnd();
   }
 
@@ -664,19 +671,45 @@ the Free Software Foundation, version 3 only. -->
             </div>
           {/if}
 
-          <!-- ── Active state indicator ─────────────────────────────────── -->
+          <!-- ── Exit notification toggle ──────────────────────────────── -->
+          <button
+            onclick={toggleExitNotification}
+            class="flex items-center gap-3 px-4 py-3.5 text-left transition-colors w-full
+                   hover:bg-slate-50 dark:hover:bg-white/[0.02]">
+            <div class="relative shrink-0 w-8 h-4 rounded-full transition-colors
+                        {dndConfig.exit_notification ? 'bg-violet-500' : 'bg-muted dark:bg-white/[0.08]'}">
+              <div class="absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform
+                          {dndConfig.exit_notification ? 'translate-x-4' : 'translate-x-0.5'}"></div>
+            </div>
+            <div class="flex flex-col gap-0.5 min-w-0">
+              <span class="text-[0.72rem] font-semibold text-foreground leading-tight">
+                {t("dnd.exitNotification")}
+              </span>
+              <span class="text-[0.58rem] text-muted-foreground leading-tight">
+                {t("dnd.exitNotificationDesc")}
+              </span>
+            </div>
+            <span class="ml-auto text-[0.52rem] font-bold tracking-widest uppercase shrink-0
+                         {dndConfig.exit_notification ? 'text-violet-500' : 'text-muted-foreground/50'}">
+              {dndConfig.exit_notification ? "ON" : "OFF"}
+            </span>
+          </button>
+
+          <!-- ── Active state indicator + exit countdown timer ───────────── -->
           <!--
-            4 states:
-            1. violet  — DND active, score above threshold (focused)
-            2. sky     — DND active, score below threshold, lookback holding exit
+            States:
+            1. violet  — DND active, score above threshold (focused, no countdown)
+            2. sky     — DND active, score below threshold, lookback delaying exit
             3. amber   — DND active, score below threshold, exit countdown running
             4. grey    — DND not active
           -->
-          {@const isHeld      = dndActive && dndExitHeldByLookback}
-          {@const isCounting  = dndActive && !dndExitHeldByLookback && dndExitSecsRemain > 0}
-          {@const isActive    = dndActive && !dndExitHeldByLookback && dndExitSecsRemain === 0}
-          <div class="flex items-center gap-3 px-4 py-3
-                      bg-slate-50 dark:bg-[#111118]">
+          {@const isHeld     = dndActive && dndExitHeldByLookback}
+          {@const isCounting = dndActive && !dndExitHeldByLookback && dndExitSecsRemain > 0}
+          {@const isActive   = dndActive && !dndExitHeldByLookback && dndExitSecsRemain === 0}
+
+          <!-- Status row: dot · label · meta/OS badge -->
+          <div class="flex items-center gap-3 px-4 py-3 bg-slate-50 dark:bg-[#111118]">
+            <!-- Pulsing dot -->
             <span class="relative flex h-2.5 w-2.5 shrink-0">
               {#if isHeld}
                 <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75"></span>
@@ -692,34 +725,31 @@ the Free Software Foundation, version 3 only. -->
               {/if}
             </span>
 
+            <!-- Status label -->
             <span class="text-[0.62rem] font-semibold
                          {isHeld     ? 'text-sky-600 dark:text-sky-400'
                         : isCounting ? 'text-amber-600 dark:text-amber-400'
                         : isActive   ? 'text-violet-600 dark:text-violet-400'
                                      : 'text-muted-foreground/60'}">
               {#if isHeld}
-                <!-- "Exit delayed — focused recently" -->
                 {t("dnd.exitHeld", { ago: String(dndConfig.focus_lookback_secs) })}
               {:else if isCounting}
-                {fmtExitCountdown(dndExitSecsRemain)}
+                {t("dnd.exitingFocusMode")}
               {:else}
                 {dndActive ? t("dnd.statusActive") : t("dnd.statusInactive")}
               {/if}
             </span>
 
+            <!-- Right-side meta -->
             <div class="ml-auto flex flex-col items-end gap-0.5">
-              <span class="text-[0.52rem] text-muted-foreground/40 text-right leading-relaxed">
+              <span class="text-[0.50rem] text-muted-foreground/40 text-right leading-relaxed">
                 {focusModes.find(m => m.identifier === dndConfig.focus_mode_identifier)?.name ?? "Do Not Disturb"}
                 · ≥{Math.round(dndConfig.focus_threshold)} for {dndConfig.duration_secs}s
-                · exit {Math.round(dndConfig.exit_duration_secs / 60)}m · lookback {dndConfig.focus_lookback_secs}s
               </span>
-              <!-- OS-level DND state: updated by the 5-second background poll
-                   and on visibilitychange so it reflects external changes
-                   (System Settings, another app, lock screen, Shortcuts, etc.) -->
               {#if dndOsActive !== null}
                 <span class="text-[0.50rem] font-medium
                              {dndOsActive && !dndActive
-                               ? 'text-amber-500 dark:text-amber-400'  /* OS on but app didn't set it */
+                               ? 'text-amber-500 dark:text-amber-400'
                                : 'text-muted-foreground/35'}">
                   {#if dndOsActive && !dndActive}
                     ⚠ System Focus active (set externally)
@@ -730,23 +760,80 @@ the Free Software Foundation, version 3 only. -->
               {/if}
             </div>
           </div>
+
+          <!-- Exit countdown timer — visible whenever the exit window is running -->
+          {#if isCounting || isHeld}
+            {@const totalSecs   = dndConfig.exit_duration_secs}
+            {@const elapsedSecs = isCounting ? totalSecs - dndExitSecsRemain : 0}
+            {@const pct         = isCounting ? Math.min(100, (elapsedSecs / totalSecs) * 100) : 0}
+            {@const mm          = isCounting ? Math.floor(dndExitSecsRemain / 60) : 0}
+            {@const ss          = isCounting ? dndExitSecsRemain % 60             : 0}
+            <div class="px-4 pb-3.5 pt-0.5 flex flex-col gap-2 bg-slate-50 dark:bg-[#111118]
+                        border-t border-border/50 dark:border-white/[0.04]">
+
+              <!-- Big countdown number (amber when running, sky when held) -->
+              <div class="flex items-baseline gap-2">
+                {#if isCounting}
+                  <span class="text-[1.6rem] font-black tabular-nums leading-none
+                               text-amber-500 dark:text-amber-400"
+                        style="font-variant-numeric: tabular-nums;">
+                    {String(mm).padStart(2, "0")}:{String(ss).padStart(2, "0")}
+                  </span>
+                  <span class="text-[0.6rem] text-amber-500/70 dark:text-amber-400/70 font-medium pb-0.5">
+                    {t("dnd.untilExit")}
+                  </span>
+                {:else}
+                  <!-- held: no numeric countdown, just a label -->
+                  <span class="text-[0.65rem] font-semibold text-sky-600 dark:text-sky-400">
+                    {t("dnd.exitHeld", { ago: String(dndConfig.focus_lookback_secs) })}
+                  </span>
+                {/if}
+              </div>
+
+              <!-- Progress track: fills left → right as the exit window elapses -->
+              <div class="relative h-2 w-full rounded-full overflow-hidden
+                          bg-muted/60 dark:bg-white/[0.06]">
+                {#if isCounting}
+                  <div class="absolute inset-y-0 left-0 rounded-full
+                              bg-amber-400 dark:bg-amber-500
+                              transition-[width] duration-1000 ease-linear"
+                       style="width:{pct}%"></div>
+                {:else}
+                  <!-- held: thin leading pulse at position 0 -->
+                  <div class="absolute inset-y-0 left-0 w-4 rounded-full
+                              bg-sky-400 dark:bg-sky-500 opacity-60 animate-pulse"></div>
+                {/if}
+              </div>
+
+              <!-- Axis labels -->
+              <div class="flex justify-between text-[0.42rem] text-muted-foreground/35
+                          tabular-nums select-none -mt-0.5">
+                <span>0s</span>
+                {#if totalSecs >= 120}
+                  <span>{Math.round(totalSecs / 2)}s</span>
+                {/if}
+                <span>{totalSecs}s</span>
+              </div>
+            </div>
+          {/if}
         {/if}
 
-        <!-- ── Manual test row (always visible) ─────────────────────────── -->
-        <div class="flex items-center gap-3 px-4 py-3 border-t border-border dark:border-white/[0.05]">
-          <span class="text-[0.62rem] text-muted-foreground/60">Test DND</span>
-          <button
-            onclick={testDnd}
-            disabled={dndTesting}
-            class="ml-auto shrink-0 text-[0.6rem] font-medium px-2.5 py-1 rounded-md border
-                   transition-colors cursor-pointer select-none
-                   {dndActive
-                     ? 'border-violet-400/40 bg-violet-500/10 text-violet-600 dark:text-violet-400 hover:bg-violet-500/20'
-                     : 'border-border dark:border-white/[0.08] bg-background text-muted-foreground hover:text-foreground hover:bg-slate-100 dark:hover:bg-white/[0.04]'}
-                   disabled:opacity-40 disabled:cursor-not-allowed">
-            {dndTesting ? "…" : dndActive ? "Turn Off" : "Turn On"}
-          </button>
-        </div>
+        <!-- ── Force-off row — only shown while focus mode is active ──────── -->
+        {#if dndActive}
+          <div class="flex items-center gap-3 px-4 py-3 border-t border-border dark:border-white/[0.05]">
+            <span class="text-[0.62rem] text-muted-foreground/60">{t("dnd.forceOff")}</span>
+            <button
+              onclick={testDnd}
+              disabled={dndTesting}
+              class="ml-auto shrink-0 text-[0.6rem] font-medium px-2.5 py-1 rounded-md border
+                     transition-colors cursor-pointer select-none
+                     border-violet-400/40 bg-violet-500/10 text-violet-600 dark:text-violet-400
+                     hover:bg-violet-500/20
+                     disabled:opacity-40 disabled:cursor-not-allowed">
+              {dndTesting ? "…" : t("dnd.forceOffBtn")}
+            </button>
+          </div>
+        {/if}
 
       </div>
     </Card>

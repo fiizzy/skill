@@ -1882,6 +1882,12 @@ const uk: Record<string, string> = {
   "dnd.focusLookbackValue":     "{secs}с",
   "dnd.focusLookbackValue_min": "{min}хв",
   "dnd.exitHeld":               "Вихід затримано — фокус {ago}с тому",
+  "dnd.exitingFocusMode":       "Вихід із режиму фокусу…",
+  "dnd.untilExit":              "до виходу",
+  "dnd.forceOff":               "Примусове вимкнення",
+  "dnd.forceOffBtn":            "Вимкнути зараз",
+  "dnd.exitNotification":       "Сповіщення про вихід",
+  "dnd.exitNotificationDesc":   "Надсилати сповіщення, коли режим фокусу автоматично деактивується (оцінка впала, поганий сигнал або функцію вимкнено).",
 
   // ── Window titles ────────────────────────────────────────────────────────
   "window.title.main":        "{app}",

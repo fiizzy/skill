@@ -464,6 +464,9 @@ pub struct AppState {
     pub dnd_focus_samples:  std::collections::VecDeque<f64>,
     pub dnd_below_ticks:    u32,
     pub dnd_score_history:  std::collections::VecDeque<f64>,
+    /// Consecutive ticks for which SNR has been below 5 dB.
+    /// When this reaches ~240 (≈ 1 minute at 4 Hz), focus mode is dropped.
+    pub dnd_snr_low_ticks:  u32,
 }
 
 impl Default for AppState {
@@ -555,6 +558,7 @@ impl Default for AppState {
             dnd_focus_samples:  std::collections::VecDeque::new(),
             dnd_below_ticks:    0,
             dnd_score_history:  std::collections::VecDeque::new(),
+            dnd_snr_low_ticks:  0,
         }
     }
 }

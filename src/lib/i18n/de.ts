@@ -1888,6 +1888,12 @@ const de: Record<string, string> = {
   "dnd.focusLookbackValue":     "{secs}s",
   "dnd.focusLookbackValue_min": "{min}m",
   "dnd.exitHeld":               "Austritt verzögert — vor {ago}s fokussiert",
+  "dnd.exitingFocusMode":       "Fokusmodus wird beendet…",
+  "dnd.untilExit":              "bis zum Austritt",
+  "dnd.forceOff":               "Erzwungenes Ende",
+  "dnd.forceOffBtn":            "Jetzt beenden",
+  "dnd.exitNotification":       "Austritts-Benachrichtigung",
+  "dnd.exitNotificationDesc":   "Benachrichtigung senden, wenn der Fokusmodus automatisch deaktiviert wird (Score gesunken, schlechtes Signal oder Funktion deaktiviert).",
 
   // ── Interactive search ───────────────────────────────────────────────────
   "search.interactiveQueryLabel":       "Suche",

@@ -424,23 +424,36 @@ pub(crate) async fn handle_event(
                 let focus_score: f64 =
                     (100.0_f32 / (1.0 + (-2.0 * (engage_raw - 0.8)).exp())) as f64;
 
+                // Current SNR (dB) from the band snapshot.
+                let snr_db = snap.snr;
+
+                // SNR threshold below which signal quality is too poor to
+                // sustain focus mode.  After SNR_LOW_TICKS consecutive ticks
+                // (~1 minute at 4 Hz) below this level the focus mode exits.
+                const SNR_LOW_DB:    f32 = 5.0;
+                const SNR_LOW_TICKS: u32 = 240; // 60 s × 4 Hz
+
                 // Read DND config + current state, update rolling windows,
                 // decide action — all in one brief lock.
                 struct DndDecision {
-                    dnd_enabled:          bool,
-                    threshold:            f64,
-                    exit_duration_secs:   u32,
-                    focus_lookback_secs:  u32,
-                    window:               usize,
-                    exit_window:          usize,
-                    sample_count:         usize,
-                    avg_score:            f64,
-                    emit_active:          bool,
-                    below_ticks:          u32,
-                    exit_held:            bool,
-                    os_active:            Option<bool>,
+                    dnd_enabled:           bool,
+                    threshold:             f64,
+                    exit_duration_secs:    u32,
+                    focus_lookback_secs:   u32,
+                    window:                usize,
+                    exit_window:           usize,
+                    sample_count:          usize,
+                    avg_score:             f64,
+                    emit_active:           bool,
+                    below_ticks:           u32,
+                    exit_held:             bool,
+                    os_active:             Option<bool>,
                     /// `Some(true/false)` → call set_dnd(value) after lock release.
-                    set_dnd_to:           Option<(bool, String)>,
+                    set_dnd_to:            Option<(bool, String)>,
+                    /// Whether to send a native exit notification after the OS call.
+                    send_exit_notification: bool,
+                    /// Human-readable exit reason for the notification body.
+                    exit_body:             &'static str,
                 }
 
                 let d = {
@@ -451,6 +464,7 @@ pub(crate) async fn handle_event(
                     let threshold     = s.dnd_config.focus_threshold as f64;
                     let duration_secs = s.dnd_config.duration_secs;
                     let window        = (duration_secs as usize * 4).max(8);
+                    let exit_notif_cfg = s.dnd_config.exit_notification;
 
                     s.dnd_focus_samples.push_back(focus_score);
                     while s.dnd_focus_samples.len() > window { s.dnd_focus_samples.pop_front(); }
@@ -465,16 +479,40 @@ pub(crate) async fn handle_event(
                     s.dnd_score_history.push_back(focus_score);
                     while s.dnd_score_history.len() > lookback_window { s.dnd_score_history.pop_front(); }
 
+                    // ── SNR low-signal tracking ───────────────────────────────
+                    if snr_db < SNR_LOW_DB {
+                        s.dnd_snr_low_ticks = s.dnd_snr_low_ticks.saturating_add(1);
+                    } else {
+                        s.dnd_snr_low_ticks = 0;
+                    }
+                    // Exit immediately if SNR has been below threshold for 1 min.
+                    let snr_forced_exit = dnd_enabled
+                        && s.dnd_active
+                        && s.dnd_snr_low_ticks >= SNR_LOW_TICKS;
+
                     let mut emit_active = s.dnd_active;
                     let mut below_ticks = s.dnd_below_ticks;
                     let mut exit_held   = false;
                     let mut set_dnd_to: Option<(bool, String)> = None;
+                    let mut send_exit_notification = false;
+                    let mut exit_body: &'static str = "";
 
-                    if dnd_enabled {
+                    if snr_forced_exit {
+                        // Signal quality too low for 1 minute: drop focus mode
+                        // immediately, bypassing the normal exit-delay logic.
+                        // Cap below_ticks so we retry next tick if the OS call fails.
+                        s.dnd_below_ticks  = exit_window as u32;
+                        below_ticks        = exit_window as u32;
+                        // NOTE: s.dnd_active stays true until post-lock OS call succeeds.
+                        emit_active        = false;
+                        set_dnd_to         = Some((false, String::new()));
+                        send_exit_notification = exit_notif_cfg;
+                        exit_body          = "Signal quality (SNR) dropped below 5 dB for 1 minute. Focus mode deactivated.";
+                    } else if dnd_enabled {
                         if avg_score >= threshold {
                             s.dnd_below_ticks = 0;
                             below_ticks       = 0;
-                            if !s.dnd_active {
+                            if !s.dnd_active && snr_db >= SNR_LOW_DB {
                                 let mode_id = s.dnd_config.focus_mode_identifier.clone();
                                 set_dnd_to = Some((true, mode_id));
                             }
@@ -486,21 +524,27 @@ pub(crate) async fn handle_event(
                                 s.dnd_below_ticks += 1;
                                 below_ticks        = s.dnd_below_ticks;
                                 if s.dnd_below_ticks as usize >= exit_window {
-                                    s.dnd_below_ticks = 0;
-                                    below_ticks       = 0;
-                                    s.dnd_active      = false;
-                                    emit_active       = false;
-                                    set_dnd_to        = Some((false, String::new()));
+                                    // Cap at exit_window so next tick retries if OS call fails.
+                                    // NOTE: s.dnd_active stays true until post-lock OS call succeeds.
+                                    s.dnd_below_ticks      = exit_window as u32;
+                                    emit_active            = false;
+                                    set_dnd_to             = Some((false, String::new()));
+                                    send_exit_notification = exit_notif_cfg;
+                                    exit_body              = "Your focus score dropped. Focus mode has been deactivated.";
                                 }
                             }
                         } else {
                             s.dnd_below_ticks = 0; below_ticks = 0;
                         }
                     } else if s.dnd_active {
-                        s.dnd_below_ticks = 0; below_ticks = 0;
-                        s.dnd_active      = false;
-                        emit_active       = false;
-                        set_dnd_to        = Some((false, String::new()));
+                        // Feature was disabled while focus mode was active — clear it.
+                        s.dnd_below_ticks  = 0;
+                        below_ticks        = 0;
+                        // NOTE: s.dnd_active stays true until post-lock OS call succeeds.
+                        emit_active        = false;
+                        set_dnd_to         = Some((false, String::new()));
+                        send_exit_notification = exit_notif_cfg;
+                        exit_body          = "Do Not Disturb automation was disabled. Focus mode deactivated.";
                     }
 
                     DndDecision {
@@ -509,18 +553,40 @@ pub(crate) async fn handle_event(
                         emit_active, below_ticks, exit_held,
                         os_active: s.dnd_os_active,
                         set_dnd_to,
+                        send_exit_notification,
+                        exit_body,
                     }
                 }; // lock released — set_dnd (file I/O) runs below
 
                 // Perform OS DND change outside the lock.
+                // Order: (1) exit system Focus first, (2) then notify the user.
                 if let Some((enable, mode_id)) = d.set_dnd_to {
                     let ok = crate::dnd::set_dnd(enable, &mode_id);
                     if ok {
-                        let sr = app.state::<Mutex<AppState>>();
-                        sr.lock_or_recover().dnd_active = enable;
+                        // Update app state only after the OS call succeeds.
+                        // This prevents a state mismatch if the call fails and
+                        // ensures the exit is retried on the next tick.
+                        {
+                            let sr = app.state::<Mutex<AppState>>();
+                            let mut s = sr.lock_or_recover();
+                            s.dnd_active        = enable;
+                            s.dnd_below_ticks   = 0;
+                            s.dnd_snr_low_ticks = 0;
+                        }
                         let _ = app.emit("dnd-state-changed", enable);
                         app.state::<WsBroadcaster>().send("dnd-state-changed", &enable);
+                        // (2) Notify the user AFTER system focus has been cleared.
+                        if !enable && d.send_exit_notification {
+                            send_toast(
+                                app,
+                                ToastLevel::Info,
+                                "Focus mode exited",
+                                d.exit_body,
+                            );
+                        }
                     }
+                    // If !ok: s.dnd_active remains true, dnd_below_ticks is capped
+                    // at exit_window, so the next tick will retry immediately.
                 }
 
                 let emit_active = d.emit_active;

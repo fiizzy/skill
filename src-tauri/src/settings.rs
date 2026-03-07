@@ -478,6 +478,7 @@ pub(crate) fn default_dnd_focus_lookback_secs() -> u32 { 60 }   // 1 minute
 pub(crate) fn default_dnd_mode_identifier() -> String {
     "com.apple.donotdisturb.mode.default".to_owned()
 }
+pub(crate) fn default_dnd_exit_notification() -> bool { true }
 
 /// Configuration for the "auto Do Not Disturb when focus is sustained" feature.
 ///
@@ -531,6 +532,12 @@ pub struct DoNotDisturbConfig {
     /// The value is ignored on non-macOS platforms.
     #[serde(default = "default_dnd_mode_identifier")]
     pub focus_mode_identifier: String,
+
+    /// Whether to send an OS notification when focus mode is automatically
+    /// deactivated (score dropped, SNR too low, or feature disabled).
+    /// Default: `true`.
+    #[serde(default = "default_dnd_exit_notification")]
+    pub exit_notification: bool,
 }
 
 impl Default for DoNotDisturbConfig {
@@ -542,6 +549,7 @@ impl Default for DoNotDisturbConfig {
             exit_duration_secs:    default_dnd_exit_duration_secs(),
             focus_lookback_secs:   default_dnd_focus_lookback_secs(),
             focus_mode_identifier: default_dnd_mode_identifier(),
+            exit_notification:     default_dnd_exit_notification(),
         }
     }
 }

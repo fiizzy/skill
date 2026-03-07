@@ -1883,6 +1883,12 @@ const he: Record<string, string> = {
   "dnd.focusLookbackValue":     "{secs}ש׳",
   "dnd.focusLookbackValue_min": "{min}ד׳",
   "dnd.exitHeld":               "יציאה נדחתה — פוקוס לפני {ago}ש׳",
+  "dnd.exitingFocusMode":       "יוצא ממצב פוקוס…",
+  "dnd.untilExit":              "עד לסיום",
+  "dnd.forceOff":               "כיבוי מאולץ",
+  "dnd.forceOffBtn":            "כבה עכשיו",
+  "dnd.exitNotification":       "התראת יציאה",
+  "dnd.exitNotificationDesc":   "שלח התראה כאשר מצב הפוקוס מושבת אוטומטית (ציון ירד, איכות אות נמוכה, או הפיצ׳ר הושבת).",
 
   // ── Window titles ────────────────────────────────────────────────────────
   "window.title.main":        "{app}",
